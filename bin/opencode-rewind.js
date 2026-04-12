@@ -198,31 +198,36 @@ async function stopProcess(pid) {
 
 const { command, port, host } = parseArgs(process.argv.slice(2));
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const standaloneRoot = join(packageRoot, ".next", "standalone");
-const serverPath = join(standaloneRoot, "server.js");
+const nextBin = join(packageRoot, "node_modules", "next", "dist", "bin", "next");
+const nextBuildId = join(packageRoot, ".next", "BUILD_ID");
 
 function ensureServerBundle() {
-  if (!existsSync(serverPath)) {
+  if (!existsSync(nextBin) || !existsSync(nextBuildId)) {
     process.stderr.write(
-      "OpenCode Rewind server bundle was not found. Reinstall the package or rebuild it before running the CLI.\n",
+      "OpenCode Rewind build output was not found. Reinstall the package or rebuild it before running the CLI.\n",
     );
     process.exit(1);
   }
 }
 
-async function handleServe() {
-  ensureServerBundle();
-
-  const child = spawn(process.execPath, [serverPath], {
-    cwd: standaloneRoot,
-    stdio: "inherit",
+function spawnNextStart(options) {
+  return spawn(process.execPath, [nextBin, "start", "-p", port, "-H", host], {
+    cwd: packageRoot,
+    ...options,
     env: {
       ...process.env,
       PORT: port,
       HOSTNAME: host,
       NODE_ENV: process.env.NODE_ENV || "production",
+      ...options?.env,
     },
   });
+}
+
+async function handleServe() {
+  ensureServerBundle();
+
+  const child = spawnNextStart({ stdio: "inherit" });
 
   for (const signal of ["SIGINT", "SIGTERM"]) {
     process.on(signal, () => {
@@ -257,16 +262,9 @@ async function handleStart() {
   ensureStateDir();
   const { logFile } = getStatePaths();
   const outFd = openSync(logFile, "a");
-  const child = spawn(process.execPath, [serverPath], {
-    cwd: standaloneRoot,
+  const child = spawnNextStart({
     detached: true,
     stdio: ["ignore", outFd, outFd],
-    env: {
-      ...process.env,
-      PORT: port,
-      HOSTNAME: host,
-      NODE_ENV: process.env.NODE_ENV || "production",
-    },
   });
 
   child.unref();

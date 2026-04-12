@@ -21,13 +21,13 @@
   "files": [
     "dist",
     "bin",
-    ".next/standalone"
+    ".next"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.lib.json",
     "dev:lib": "tsc -p tsconfig.lib.json --watch",
     "dev": "next dev --turbopack -p 3838",
-    "build:app": "next build && node ./scripts/prepare-standalone.mjs",
+    "build:app": "next build",
     "serve": "node ./bin/opencode-rewind.js",
     "prepack": "npm run build && npm run build:app",
     "typecheck": "next typegen && tsc --noEmit",
