@@ -1,56 +1,141 @@
 # rewind
 
-Local viewer and analytics dashboard for OpenCode sessions.
+Local viewer, analytics dashboard, and TypeScript library for inspecting OpenCode sessions.
 
 ## Why
 
 OpenCode stores rich local session state, but the raw SQLite data is awkward to inspect directly.
-Rewind turns it into a purpose-built tool for:
+Rewind turns it into something easier to use for:
 
 - browsing sessions
 - drilling into tool calls and subagents
-- inspecting compactions and token usage
-- understanding how you use OpenCode over time
+- inspecting compactions, diffs, and todos
+- understanding token usage, timing, and cost over time
 
-## Storage
+## Install
 
-Rewind reads the current OpenCode storage layout directly:
+```bash
+pnpm add rewind
+```
+
+## Library
 
 ```ts
 import { createRewind } from "rewind";
 
-const rewind = createRewind({ basePath: "/custom/path/to/opencode-data-dir" });
+const rewind = createRewind();
+
+const sessions = await rewind.listSessions({ limit: 20 });
+const session = await rewind.getSession(sessions[0].id);
+const messages = await rewind.getMessages(sessions[0].id);
+
+rewind.close();
 ```
 
-By default it reads:
+### Config
+
+```ts
+import { createRewind } from "rewind";
+
+const rewind = createRewind({
+  basePath: "/custom/path/to/opencode-data-dir",
+});
+```
+
+`basePath` should point at the OpenCode data directory.
+
+By default Rewind reads:
 
 - `~/.local/share/opencode/opencode.db`
 - `~/.local/share/opencode/storage/session_diff/*.json`
 
-On systems that set `XDG_DATA_HOME`, Rewind follows that base directory instead of `~/.local/share`.
+If `XDG_DATA_HOME` is set, Rewind uses that base directory instead of `~/.local/share`.
 
-## Data model
+### Direct Provider
 
-### Session
+If you want the OpenCode-specific provider directly:
+
+```ts
+import { createOpenCodeProvider } from "rewind/providers/opencode";
+
+const provider = createOpenCodeProvider();
+const sessions = await provider.listSessions();
+provider.close();
+```
+
+## API
+
+### `createRewind(config?)`
+
+Returns an object with:
+
+- `listSessions(options?)`
+- `getSession(sessionId)`
+- `getMessages(sessionId)`
+- `close()`
+
+### `listSessions(options?)`
+
+```ts
+await rewind.listSessions({
+  projectPath: "/Users/me/myproject",
+  after: "2025-01-01T00:00:00Z",
+  before: "2025-02-01T00:00:00Z",
+  includeSubagents: true,
+  limit: 50,
+});
+```
+
+Subagent sessions are excluded by default. Pass `includeSubagents: true` to include them.
+
+### `getSession(sessionId)`
+
+Returns a normalized `Session` with:
+
+- session summary fields
+- `messages`
+- `diffs` from `storage/session_diff/<sessionId>.json` when present
+- `todos` from the SQLite `todo` table when present
+
+### `getMessages(sessionId)`
+
+Returns normalized messages only.
+
+## Data Model
+
+The source of truth is `src/types.ts`. The most important shapes are:
 
 ```ts
 interface SessionSummary {
   id: string;
   provider: "opencode";
   title?: string;
-  createdAt: string;           // ISO-8601
+  slug?: string;
+  createdAt: string;
   updatedAt: string;
   messageCount?: number;
   projectPath?: string;
   usage?: TokenUsage;
   cost?: number;
-  parentSessionId?: string;    // set on subagent sessions
+  totalDurationMs?: number;
+  parentSessionId?: string;
+  cliVersion?: string;
+  codeChanges?: { additions: number; deletions: number; files: number };
+  permissions?: Array<{ type: string; glob?: string; description?: string }>;
+  primaryModel?: string;
+  models?: string[];
+  toolCallCount?: number;
+  subagentCount?: number;
+  compactionCount?: number;
+  topTools?: Array<{ name: string; count: number }>;
 }
-```
 
-### Message
+interface Session<TRaw = unknown> extends SessionSummary {
+  messages: Message<TRaw>[];
+  diffs?: OpenCodeSessionDiff[];
+  todos?: OpenCodeTodo[];
+}
 
-```ts
 interface Message<TRaw = unknown> {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
@@ -62,29 +147,26 @@ interface Message<TRaw = unknown> {
   usage?: TokenUsage;
   cost?: number;
   parentId?: string;
-  isCompactSummary?: boolean;  // true on compaction summary messages
-  error?: MessageError;        // present when the API call failed
+  isCompactSummary?: boolean;
+  error?: MessageError;
   stopReason?: string;
   cwd?: string;
   apiProvider?: string;
   mode?: string;
-  raw: TRaw;                   // original OpenCode-stored data
+  summary?: { title?: string; diffs?: unknown[] };
+  raw: TRaw;
 }
-```
 
-### Content blocks
-
-```ts
 type MessageContent =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; textType?: string }
   | { type: "tool_use"; toolName: string; toolCallId?: string; input: unknown; subagentSessionId?: string; durationMs?: number; title?: string }
-  | { type: "tool_result"; toolCallId?: string; toolName?: string; output: string; isError?: boolean; durationMs?: number; status?: string }
-  | { type: "thinking"; text: string; durationMs?: number }
+  | { type: "tool_result"; toolCallId?: string; toolName?: string; output: string; isError?: boolean; durationMs?: number; interrupted?: boolean; status?: string }
+  | { type: "thinking"; text: string; durationMs?: number; signature?: string }
   | { type: "compaction"; auto: boolean; preTokens?: number }
   | { type: "patch"; hash: string; files: string[] }
 ```
 
-### Token usage
+### Token Usage
 
 ```ts
 interface TokenUsage {
@@ -98,84 +180,59 @@ interface TokenUsage {
 }
 ```
 
-## Filtering
+Every normalized message also carries a `.raw` field with the original OpenCode payload.
 
-```ts
-// By date range
-await rw.listSessions({
-  after: "2025-01-01T00:00:00Z",
-  before: "2025-02-01T00:00:00Z",
-});
+## OpenCode-Specific Behavior
 
-// By project directory
-await rw.listSessions({ projectPath: "/Users/me/myproject" });
+### Subagents
 
-// Include subagent sessions (excluded by default)
-await rw.listSessions({ includeSubagents: true });
+OpenCode spawns subagent sessions for parallel work like exploration and research.
+These sessions have `parentSessionId` set to the parent session ID.
 
-// Limit results
-await rw.listSessions({ limit: 10 });
-```
+### Compaction
 
-## Subagent sessions
+Rewind surfaces compaction as:
 
-OpenCode spawns subagent sessions for parallel work like exploration and research. These are excluded from `listSessions()` by default to avoid cluttering results.
+- a message containing `{ type: "compaction", auto: boolean }`
+- the next assistant message marked with `isCompactSummary: true`
+- possible API errors on messages that failed during context pressure
 
-Subagent sessions have `parentSessionId` set to the ID of the session that spawned them. Pass `includeSubagents: true` to include them.
-
-## Compaction
-
-When a conversation hits the context window limit, agents compact (summarize) the conversation. Rewind surfaces these events:
-
-- A message with `{ type: "compaction", auto: boolean }` content marks where compaction occurred
-- The next message has `isCompactSummary: true` and contains the generated summary
-- Messages that failed due to context overflow have an `error` field with the API error details
-
-## Raw data
-
-Every message still carries a `.raw` field with the original OpenCode message payload.
-
-## Diffs and todos
-
-`getSession()` also includes:
-
-- `diffs` from `storage/session_diff/<sessionId>.json`
-- `todos` from the SQLite `todo` table
-
-## Web viewer
+## Web App
 
 Rewind also includes a Next.js web app for browsing and analyzing OpenCode sessions.
 
 ```bash
-# Development (hot reload)
 pnpm dev        # http://localhost:3838
-
-# Production
 pnpm build:app
 pnpm serve      # http://localhost:3838
 ```
 
 ### REST API
 
-The web app exposes a REST API:
+The web app exposes these routes:
 
-```
-GET /api/sessions                               # List all sessions
-GET /api/sessions?project=/path/to/project      # Filter by project
-GET /api/sessions?after=2025-01-01&before=2025-02-01
-GET /api/sessions?includeSubagents=true         # Include subagent sessions
-GET /api/session/:sessionId                     # Get full session with messages
-GET /api/dashboard                              # Aggregate overview for filtered date range
+```text
+GET /api/sessions
+GET /api/sessions?project=/path/to/project
+GET /api/sessions?after=2025-01-01T00:00:00Z&before=2025-02-01T23:59:59.999Z
+GET /api/sessions?includeSubagents=true
+GET /api/sessions?limit=100
+
+GET /api/session/:sessionId
+GET /api/session/:sessionId?startMessage=10&endMessage=40
+
+GET /api/dashboard
+GET /api/dashboard?after=2025-01-01T00:00:00Z&before=2025-02-01T23:59:59.999Z
 ```
 
 ## Development
 
 ```bash
 pnpm install
-pnpm test          # run tests (vitest)
-pnpm test:watch    # watch mode
-pnpm build         # build library to dist/
-pnpm typecheck     # type check without emitting
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm build:app
 ```
 
 ## License
