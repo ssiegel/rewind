@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -198,7 +199,8 @@ async function stopProcess(pid) {
 
 const { command, port, host } = parseArgs(process.argv.slice(2));
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const nextBin = join(packageRoot, "node_modules", "next", "dist", "bin", "next");
+const require = createRequire(import.meta.url);
+const nextBin = require.resolve("next/dist/bin/next");
 const nextBuildId = join(packageRoot, ".next", "BUILD_ID");
 
 function ensureServerBundle() {
