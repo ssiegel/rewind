@@ -1,6 +1,6 @@
 {
   "name": "opencode-rewind",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "OpenCode session viewer and observability dashboard",
   "type": "module",
   "main": "./dist/index.js",
