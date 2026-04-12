@@ -5,6 +5,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "opencode-rewind": "./bin/opencode-rewind.js"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -16,15 +19,18 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "bin",
+    ".next/standalone"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.lib.json",
     "dev:lib": "tsc -p tsconfig.lib.json --watch",
     "dev": "next dev --turbopack -p 3838",
-    "build:app": "next build",
-    "serve": "next start -p 3838",
-    "typecheck": "tsc --noEmit",
+    "build:app": "next build && node ./scripts/prepare-standalone.mjs",
+    "serve": "node ./bin/opencode-rewind.js",
+    "prepack": "npm run build && npm run build:app",
+    "typecheck": "next typegen && tsc --noEmit",
     "clean": "rm -rf dist .next",
     "test": "vitest run",
     "test:watch": "vitest"

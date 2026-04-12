@@ -22,6 +22,73 @@ Rewind turns it into something easier to use for:
 pnpm add opencode-rewind
 ```
 
+Global install:
+
+```bash
+npm install -g opencode-rewind
+opencode-rewind start
+```
+
+Optional flags:
+
+```bash
+opencode-rewind start --port 3838 --host 127.0.0.1
+opencode-rewind stop
+opencode-rewind status
+```
+
+`opencode-rewind` commands:
+
+- `opencode-rewind` or `opencode-rewind serve` runs the app in the foreground
+- `opencode-rewind start` starts it in the background if it is not already running
+- `opencode-rewind stop` stops the managed background server
+- `opencode-rewind status` reports whether the server is reachable
+
+## OpenCode Plugin
+
+`opencode-rewind` can also be loaded as an OpenCode plugin.
+
+OpenCode plugins and slash commands are configured separately. The plugin handles the behavior for `/rewind` and `/rewind-off`, but the commands still need to be defined in your OpenCode config so they appear in the TUI and emit `command.executed` events.
+
+Add it to your OpenCode config:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-rewind"],
+  "command": {
+    "rewind": {
+      "description": "Open the current OpenCode session in Rewind",
+      "template": "Open the current session in Rewind. Reply with a single short confirmation only."
+    },
+    "rewind-off": {
+      "description": "Stop the managed Rewind server",
+      "template": "Stop the Rewind server if it is running. Reply with a single short confirmation only."
+    }
+  }
+}
+```
+
+What the plugin does:
+
+- `/rewind` ensures the Rewind server is running, then opens the current session in your browser
+- `/rewind-off` stops the managed background Rewind server
+
+The plugin shells out to the `opencode-rewind` CLI, so the global install is recommended when using this workflow.
+
+Optional plugin config:
+
+```json
+{
+  "plugin": [["opencode-rewind", {
+    "baseUrl": "http://127.0.0.1:3838",
+    "rewindCommand": "rewind",
+    "stopCommand": "rewind-off",
+    "cliCommand": "opencode-rewind"
+  }]]
+}
+```
+
 ## Library
 
 ```ts
@@ -208,7 +275,7 @@ Rewind also includes a Next.js web app for browsing and analyzing OpenCode sessi
 ```bash
 pnpm dev        # http://localhost:3838
 pnpm build:app
-pnpm serve      # http://localhost:3838
+pnpm serve      # starts the packaged standalone server in the foreground
 ```
 
 ### REST API

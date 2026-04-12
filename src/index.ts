@@ -11,6 +11,9 @@
  * ```
  */
 
+export { default, plugin, rewindPlugin, server } from "./opencode-plugin";
+export type { RewindPluginOptions } from "./opencode-plugin";
+
 export type {
   MessageRole,
   TextContent,
