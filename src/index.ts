@@ -3,7 +3,7 @@
  *
  * @example
  * ```ts
- * import { createRewind } from "rewind";
+ * import { createRewind } from "opencode-rewind";
  *
  * const rewind = createRewind();
  * const sessions = await rewind.listSessions({ limit: 20 });

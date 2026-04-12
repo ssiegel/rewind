@@ -2,6 +2,10 @@
 
 Local viewer, analytics dashboard, and TypeScript library for inspecting OpenCode sessions.
 
+Published on npm as `opencode-rewind`.
+
+This project is not built by the OpenCode team and is not affiliated with OpenCode or Anomaly.
+
 ## Why
 
 OpenCode stores rich local session state, but the raw SQLite data is awkward to inspect directly.
@@ -15,13 +19,13 @@ Rewind turns it into something easier to use for:
 ## Install
 
 ```bash
-pnpm add rewind
+pnpm add opencode-rewind
 ```
 
 ## Library
 
 ```ts
-import { createRewind } from "rewind";
+ import { createRewind } from "opencode-rewind";
 
 const rewind = createRewind();
 
@@ -35,7 +39,7 @@ rewind.close();
 ### Config
 
 ```ts
-import { createRewind } from "rewind";
+ import { createRewind } from "opencode-rewind";
 
 const rewind = createRewind({
   basePath: "/custom/path/to/opencode-data-dir",
@@ -56,7 +60,7 @@ If `XDG_DATA_HOME` is set, Rewind uses that base directory instead of `~/.local/
 If you want the OpenCode-specific provider directly:
 
 ```ts
-import { createOpenCodeProvider } from "rewind/providers/opencode";
+ import { createOpenCodeProvider } from "opencode-rewind/providers/opencode";
 
 const provider = createOpenCodeProvider();
 const sessions = await provider.listSessions();

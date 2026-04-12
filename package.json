@@ -1,5 +1,5 @@
 {
-  "name": "rewind",
+  "name": "opencode-rewind",
   "version": "0.1.0",
   "description": "OpenCode session viewer and observability dashboard",
   "type": "module",
