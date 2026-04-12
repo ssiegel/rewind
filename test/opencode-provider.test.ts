@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import Database from "better-sqlite3";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { createOpenCodeProvider, type OpenCodeProvider } from "../src/providers/opencode";
 import { createRewind } from "../src/index";
 import type { OpenCodeSessionDiff } from "../src/types";
@@ -10,7 +10,7 @@ import type { OpenCodeSessionDiff } from "../src/types";
 interface Fixture {
   dataDir: string;
   storageDir: string;
-  db: Database.Database;
+  db: DatabaseSync;
   createProvider(basePath?: string): OpenCodeProvider;
   insertProject(input?: { id?: string; worktree?: string }): void;
   insertSession(input: {
@@ -61,7 +61,7 @@ function createFixture(): Fixture {
   const storageDir = join(dataDir, "storage");
   mkdirSync(storageDir, { recursive: true });
 
-  const db = new Database(join(dataDir, "opencode.db"));
+  const db = new DatabaseSync(join(dataDir, "opencode.db"));
   db.exec(`
     CREATE TABLE project (
       id TEXT PRIMARY KEY,

@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type {
   ListSessionsOptions,
   Message,
@@ -16,8 +16,6 @@ import type {
   SessionSummary,
   TokenUsage,
 } from "../types.js";
-
-const require = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
 // Raw types – what OpenCode stores
@@ -565,8 +563,7 @@ interface SqliteBackend {
 }
 
 function createSqliteBackend(dbPath: string): SqliteBackend {
-  const Database = require("better-sqlite3");
-  const db = new Database(dbPath, { readonly: true });
+  const db = new DatabaseSync(dbPath, { readOnly: true });
 
   // Prepare statements for reuse
   const stmtProjects = db.prepare("SELECT id, worktree FROM project");
