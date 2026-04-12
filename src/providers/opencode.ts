@@ -15,7 +15,7 @@ import type {
   Session,
   SessionSummary,
   TokenUsage,
-} from "../types";
+} from "../types.js";
 
 const require = createRequire(import.meta.url);
 

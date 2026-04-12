@@ -10,7 +10,7 @@ import { getRewind } from "../../lib/rewind-server";
  *   before - ISO date string (inclusive)
  */
 export async function GET(request: NextRequest) {
-  const rw = getRewind();
+  const rw = await getRewind();
   const { searchParams } = request.nextUrl;
   const after = searchParams.get("after");
   const before = searchParams.get("before");

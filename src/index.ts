@@ -11,8 +11,8 @@
  * ```
  */
 
-export { default, plugin, rewindPlugin, server } from "./opencode-plugin";
-export type { RewindPluginOptions } from "./opencode-plugin";
+export { default, plugin, rewindPlugin, server } from "./opencode-plugin.js";
+export type { RewindPluginOptions } from "./opencode-plugin.js";
 
 export type {
   MessageRole,
@@ -34,9 +34,9 @@ export type {
   OpenCodeTodo,
   OpenCodeConfig,
   ListSessionsOptions,
-} from "./types";
+} from "./types.js";
 
-export { createOpenCodeProvider } from "./providers/opencode";
+export { createOpenCodeProvider } from "./providers/opencode.js";
 
 export type {
   OpenCodeRawSession,
@@ -50,10 +50,10 @@ export type {
   OpenCodeStepFinishPart,
   OpenCodePatchPart,
   OpenCodeProject,
-} from "./providers/opencode";
+} from "./providers/opencode.js";
 
-import type { ListSessionsOptions, Message, OpenCodeConfig, Session, SessionSummary } from "./types";
-import { createOpenCodeProvider } from "./providers/opencode";
+import type { ListSessionsOptions, Message, OpenCodeConfig, Session, SessionSummary } from "./types.js";
+import { createOpenCodeProvider } from "./providers/opencode.js";
 
 export interface Rewind {
   listSessions(options?: ListSessionsOptions): Promise<SessionSummary[]>;

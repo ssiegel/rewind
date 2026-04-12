@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getRewind } from "../../lib/rewind-server";
 
 export async function GET(request: NextRequest) {
-  const rw = getRewind();
+  const rw = await getRewind();
   const { searchParams } = request.nextUrl;
 
   const options: {

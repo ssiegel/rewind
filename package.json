@@ -21,15 +21,24 @@
   "files": [
     "dist",
     "bin",
-    ".next"
+    ".next/BUILD_ID",
+    ".next/app-path-routes-manifest.json",
+    ".next/build-manifest.json",
+    ".next/package.json",
+    ".next/prerender-manifest.json",
+    ".next/required-server-files.json",
+    ".next/routes-manifest.json",
+    ".next/server",
+    ".next/static"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.lib.json",
     "dev:lib": "tsc -p tsconfig.lib.json --watch",
-    "dev": "next dev --turbopack -p 3838",
-    "build:app": "next build",
+    "dev": "pnpm build && next dev --turbopack -p 3838",
+    "build:app": "rm -rf .next && next build",
     "serve": "node ./bin/opencode-rewind.js",
     "prepack": "npm run build && npm run build:app",
+    "smoke:pack": "node ./scripts/smoke-pack.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "clean": "rm -rf dist .next",
     "test": "vitest run",

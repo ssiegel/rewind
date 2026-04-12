@@ -2,13 +2,35 @@
  * Server-side singleton for the Rewind instance.
  * Used by API routes to access session data.
  */
-import { createRewind, type Rewind } from "../../src/index";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import type { Rewind } from "../../src/index";
 
-let _instance: Rewind | null = null;
+let _instancePromise: Promise<Rewind> | null = null;
+const runtimeImport = new Function("u", "return import(u)") as (url: string) => Promise<{ createRewind: () => Rewind }>;
 
-export function getRewind(): Rewind {
-  if (!_instance) {
-    _instance = createRewind();
+async function loadCreateRewind() {
+  const distEntry = join(process.cwd(), "dist", "index.js");
+
+  if (!existsSync(distEntry)) {
+    throw new Error(
+      "Rewind library build output was not found. Run `pnpm build` before starting the app.",
+    );
   }
-  return _instance;
+
+  const moduleUrl = pathToFileURL(distEntry).href;
+  const mod = await runtimeImport(moduleUrl);
+  return mod.createRewind as () => Rewind;
+}
+
+export async function getRewind(): Promise<Rewind> {
+  if (!_instancePromise) {
+    _instancePromise = (async () => {
+      const createRewind = await loadCreateRewind();
+      return createRewind();
+    })();
+  }
+
+  return _instancePromise;
 }

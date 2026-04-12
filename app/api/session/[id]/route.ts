@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const rw = getRewind();
+  const rw = await getRewind();
   const session = await rw.getSession(decodeURIComponent(id));
 
   if (!session) {
