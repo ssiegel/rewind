@@ -48,7 +48,7 @@ opencode-rewind status
 
 `opencode-rewind` can also be loaded as an OpenCode plugin.
 
-OpenCode plugins and slash commands are configured separately. The plugin handles the behavior for `/rewind` and `/rewind-off`, but the commands still need to be defined in your OpenCode config so they appear in the TUI and emit `command.executed` events.
+OpenCode plugins and slash commands are configured separately. The plugin handles `/rewind` and `/rewind-off` in the `command.execute.before` hook, but the commands still need to be defined in your OpenCode config so they appear in the TUI.
 
 Add it to your OpenCode config:
 
@@ -59,11 +59,11 @@ Add it to your OpenCode config:
   "command": {
     "rewind": {
       "description": "Open the current OpenCode session in Rewind",
-      "template": "Open the current session in Rewind. Reply with a single short confirmation only."
+      "template": "Handled locally by the Rewind plugin. No model response is needed."
     },
     "rewind-off": {
       "description": "Stop the managed Rewind server",
-      "template": "Stop the Rewind server if it is running. Reply with a single short confirmation only."
+      "template": "Handled locally by the Rewind plugin. No model response is needed."
     }
   }
 }
@@ -73,6 +73,8 @@ What the plugin does:
 
 - `/rewind` ensures the Rewind server is running, then opens the current session in your browser
 - `/rewind-off` stops the managed background Rewind server
+
+The plugin tries to neutralize the command body before the normal model flow, but OpenCode may still record a lightweight command message in the transcript.
 
 The plugin shells out to the `opencode-rewind` CLI, so the global install is recommended when using this workflow.
 

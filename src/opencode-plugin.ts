@@ -1,14 +1,22 @@
 type ToastVariant = "info" | "success" | "warning" | "error";
 
-type CommandExecutedEvent = {
-  type: "command.executed";
-  properties: {
-    name: string;
-    sessionID: string;
-  };
+type RewindCommandPart = {
+  type?: string;
+  text?: string;
+  ignored?: boolean;
+  synthetic?: boolean;
+  [key: string]: unknown;
 };
 
-type PluginEvent = CommandExecutedEvent | { type: string; properties?: Record<string, unknown> };
+type CommandExecuteBeforeInput = {
+  command: string;
+  sessionID: string;
+  arguments: string;
+};
+
+type CommandExecuteBeforeOutput = {
+  parts: RewindCommandPart[];
+};
 
 type PluginClient = {
   tui?: {
@@ -44,10 +52,6 @@ const DEFAULT_BASE_URL = "http://127.0.0.1:3838";
 const DEFAULT_REWIND_COMMAND = "rewind";
 const DEFAULT_STOP_COMMAND = "rewind-off";
 const DEFAULT_CLI_COMMAND = "opencode-rewind";
-
-function isCommandExecutedEvent(event: PluginEvent): event is CommandExecutedEvent {
-  return event.type === "command.executed";
-}
 
 function resolveOptions(options?: RewindPluginOptions) {
   return {
@@ -99,19 +103,31 @@ async function openUrl($: PluginShell, url: string) {
   await $`xdg-open ${url}`.quiet();
 }
 
+function neutralizeCommandParts(parts: RewindCommandPart[]) {
+  for (const part of parts) {
+    if (part.type === "text" && typeof part.text === "string") {
+      part.text = "Handled locally by the Rewind plugin. No model response is needed.";
+      part.ignored = true;
+      part.synthetic = true;
+    }
+  }
+}
+
 export async function rewindPlugin(input: PluginInput, options?: RewindPluginOptions) {
   const { client, $ } = input;
   const config = resolveOptions(options);
   const baseUrl = parseBaseUrl(config.baseUrl);
 
   return {
-    event: async ({ event }: { event: PluginEvent }) => {
-      if (!isCommandExecutedEvent(event)) return;
-
-      if (event.properties.name === config.rewindCommand) {
+    "command.execute.before": async (
+      input: CommandExecuteBeforeInput,
+      output: CommandExecuteBeforeOutput,
+    ) => {
+      if (input.command === config.rewindCommand) {
         try {
+          neutralizeCommandParts(output.parts);
           await runCliCommand($, config.cliCommand, "start", baseUrl);
-          const url = new URL(`/session/${encodeURIComponent(event.properties.sessionID)}`, baseUrl).toString();
+          const url = new URL(`/session/${encodeURIComponent(input.sessionID)}`, baseUrl).toString();
           await openUrl($, url);
           await showToast(client, "Opened current session in Rewind", "success");
         } catch (error) {
@@ -121,8 +137,9 @@ export async function rewindPlugin(input: PluginInput, options?: RewindPluginOpt
         return;
       }
 
-      if (event.properties.name === config.stopCommand) {
+      if (input.command === config.stopCommand) {
         try {
+          neutralizeCommandParts(output.parts);
           await runCliCommand($, config.cliCommand, "stop", baseUrl);
           await showToast(client, "Stopped Rewind server", "success");
         } catch (error) {
