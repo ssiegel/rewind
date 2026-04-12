@@ -76,7 +76,7 @@ What the plugin does:
 
 The plugin tries to neutralize the command body before the normal model flow, but OpenCode may still record a lightweight command message in the transcript.
 
-The plugin shells out to the `opencode-rewind` CLI, so the global install is recommended when using this workflow.
+The npm plugin package includes the Rewind CLI internally, so `/rewind` and `/rewind-off` do not require a separate global install.
 
 Optional plugin config:
 

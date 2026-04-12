@@ -1,3 +1,6 @@
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
 type ToastVariant = "info" | "success" | "warning" | "error";
 
 type RewindCommandPart = {
@@ -51,7 +54,7 @@ export interface RewindPluginOptions {
 const DEFAULT_BASE_URL = "http://127.0.0.1:3838";
 const DEFAULT_REWIND_COMMAND = "rewind";
 const DEFAULT_STOP_COMMAND = "rewind-off";
-const DEFAULT_CLI_COMMAND = "opencode-rewind";
+const DEFAULT_CLI_COMMAND = fileURLToPath(new URL("../bin/opencode-rewind.js", import.meta.url));
 
 function resolveOptions(options?: RewindPluginOptions) {
   return {
@@ -86,7 +89,8 @@ async function runCliCommand(
   subcommand: "start" | "stop",
   baseUrl: URL,
 ) {
-  await $`${cliCommand} ${subcommand} --host ${baseUrl.hostname} --port ${baseUrl.port}`.quiet();
+  const command = cliCommand.includes("/") ? cliCommand : join(dirname(cliCommand), cliCommand);
+  await $`${command} ${subcommand} --host ${baseUrl.hostname} --port ${baseUrl.port}`.quiet();
 }
 
 async function openUrl($: PluginShell, url: string) {
