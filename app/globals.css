@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+@theme {
+  /* ----------------------------------------------------------------
+   * Surfaces — light, paper-like. Whisper-quiet elevation through
+   * barely-there gray shifts. White base, warm undertone.
+   * ---------------------------------------------------------------- */
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f9f9fa;
+  --color-surface-2: #f2f2f4;
+  --color-surface-3: #eaeaed;
+
+  /* ----------------------------------------------------------------
+   * Borders — soft gray. Disappear when not needed, present when
+   * you look for structure.
+   * ---------------------------------------------------------------- */
+  --color-border-dim: #e8e8ec;
+  --color-border-default: #d8d8de;
+  --color-border-bright: #c0c0c8;
+
+  /* ----------------------------------------------------------------
+   * Text — keep the quiet palette, but with stronger contrast so the
+   * app is readable for long session inspection.
+   * ---------------------------------------------------------------- */
+  --color-text-primary: #16161b;
+  --color-text-secondary: #4f5563;
+  --color-text-tertiary: #717887;
+
+  /* ----------------------------------------------------------------
+   * Accent — OpenCode blue for interactive elements and emphasis.
+   * ---------------------------------------------------------------- */
+  --color-accent-opencode: #3575d2;
+
+  --color-accent-opencode-dim: rgba(53, 117, 210, 0.08);
+
+  /* ----------------------------------------------------------------
+   * Semantic — tool, thinking, error, success. Motivated color only.
+   * ---------------------------------------------------------------- */
+  --color-semantic-tool: #2563eb;
+  --color-semantic-tool-dim: rgba(37, 99, 235, 0.06);
+  --color-semantic-thinking: #7c3aed;
+  --color-semantic-thinking-dim: rgba(124, 58, 237, 0.05);
+  --color-semantic-error: #dc2626;
+  --color-semantic-success: #16a34a;
+
+  /* ----------------------------------------------------------------
+   * Typography — mono-forward for a forensic/terminal aesthetic
+   * ---------------------------------------------------------------- */
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-surface-0);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-weight: 450;
+}
+
+/* ----------------------------------------------------------------
+ * Scrollbar — minimal, part of the surface. Not a feature.
+ * ---------------------------------------------------------------- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-bright);
+}
+
+/* Selection — subtle tint of the product accent */
+::selection {
+  background: rgba(53, 117, 210, 0.15);
+}
+
+/* ----------------------------------------------------------------
+ * Reduce motion — respect user preference
+ * ---------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ----------------------------------------------------------------
+ * Prose — markdown rendered inside message bubbles.
+ * Restrained, mono-flavored. Hierarchy through weight, not size.
+ * ---------------------------------------------------------------- */
+.prose-message pre {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-dim);
+  border-radius: 6px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.prose-message code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+.prose-message :not(pre) > code {
+  background: var(--color-surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.85em;
+  border: 1px solid var(--color-border-dim);
+}
+.prose-message p {
+  margin: 0.5em 0;
+  line-height: 1.6;
+  text-wrap: pretty;
+  color: var(--color-text-primary);
+}
+.prose-message ul, .prose-message ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.prose-message li {
+  margin: 0.2em 0;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+}
+.prose-message h1, .prose-message h2, .prose-message h3, .prose-message h4 {
+  font-weight: 600;
+  margin: 1em 0 0.5em;
+  text-wrap: balance;
+  letter-spacing: -0.01em;
+}
+.prose-message h1 { font-size: 1.2em; }
+.prose-message h2 { font-size: 1.1em; }
+.prose-message h3 { font-size: 1.05em; }
+.prose-message a {
+  color: var(--color-accent-opencode);
+  text-decoration: underline;
+  text-decoration-color: rgba(53, 117, 210, 0.3);
+  text-underline-offset: 2px;
+}
+.prose-message a:hover {
+  text-decoration-color: var(--color-accent-opencode);
+}
+.prose-message blockquote {
+  border-left: 2px solid var(--color-border-bright);
+  padding-left: 1em;
+  color: var(--color-text-secondary);
+  margin: 0.5em 0;
+}
+.prose-message strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}

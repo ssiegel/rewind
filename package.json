@@ -1,0 +1,75 @@
+{
+  "name": "rewind",
+  "version": "0.1.0",
+  "description": "OpenCode session viewer and observability dashboard",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./providers/opencode": {
+      "import": "./dist/providers/opencode.js",
+      "types": "./dist/providers/opencode.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.lib.json",
+    "dev:lib": "tsc -p tsconfig.lib.json --watch",
+    "dev": "next dev --turbopack -p 3838",
+    "build:app": "next build",
+    "serve": "next start -p 3838",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .next",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "opencode",
+    "session",
+    "conversation",
+    "history",
+    "observability"
+  ],
+  "license": "MIT",
+  "packageManager": "pnpm@10.28.0",
+  "dependencies": {
+    "@radix-ui/react-popover": "^1.1.15",
+    "better-sqlite3": "^11.0.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.563.0",
+    "next": "^16.1.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "@next/swc-darwin-arm64",
+      "@tailwindcss/oxide-darwin-arm64",
+      "@tailwindcss/oxide",
+      "sharp"
+    ]
+  }
+}

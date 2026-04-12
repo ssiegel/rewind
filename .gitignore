@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+.next/
+out/
+
+# typescript
+*.tsbuildinfo
+
+# next.js
+next-env.d.ts
+
+# env / secrets
+.env
+.env.*
+
+# os
+.DS_Store
+Thumbs.db
+
+# editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# npm (we use pnpm)
+package-lock.json
+
+# test / coverage
+coverage/
+
+# search index + models
+*.db
+*.db-journal
+*.db-wal
+models/
