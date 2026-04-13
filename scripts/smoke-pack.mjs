@@ -67,6 +67,20 @@ async function fetchText(url) {
   return response.text();
 }
 
+async function assertPluginRootExports(prefixDir, cwd) {
+  const packageRoot = join(prefixDir, "lib", "node_modules", "opencode-rewind");
+  const snippet = [
+    "import(path).then((mod) => {",
+    "  const keys = Object.keys(mod);",
+    "  console.log(JSON.stringify(keys));",
+    "  if (keys.length !== 1 || keys[0] !== 'default') process.exit(1);",
+    "})",
+    ".catch((error) => { console.error(error); process.exit(1); });",
+  ].join(" ");
+
+  await run(process.execPath, ["-e", `const path = new URL('./dist/index.js', 'file://${packageRoot}/').href; ${snippet}`], { cwd });
+}
+
 async function waitFor(url, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -97,6 +111,7 @@ try {
   }
 
   await run("npm", ["install", "-g", "--prefix", prefixDir, join(packDir, tarballName)], { cwd: root });
+  await assertPluginRootExports(prefixDir, root);
   await run(cliPath, ["start", "--port", port], {
     cwd: root,
     env: {

@@ -5,13 +5,13 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Rewind } from "../../src/index";
+import type { Rewind } from "../../src/lib";
 
 let _instancePromise: Promise<Rewind> | null = null;
 const runtimeImport = new Function("u", "return import(u)") as (url: string) => Promise<{ createRewind: () => Rewind }>;
 
 async function loadCreateRewind() {
-  const distEntry = join(process.cwd(), "dist", "index.js");
+  const distEntry = join(process.cwd(), "dist", "lib.js");
 
   if (!existsSync(distEntry)) {
     throw new Error(

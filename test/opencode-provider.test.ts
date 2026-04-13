@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { createOpenCodeProvider, type OpenCodeProvider } from "../src/providers/opencode";
-import { createRewind } from "../src/index";
+import { createRewind } from "../src/lib";
 import type { OpenCodeSessionDiff } from "../src/types";
 
 interface Fixture {

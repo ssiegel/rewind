@@ -16,37 +16,22 @@ Rewind turns it into something easier to use for:
 - inspecting compactions, diffs, and todos
 - understanding token usage, timing, and cost over time
 
-## Install
+## Usage Modes
 
-```bash
-pnpm add opencode-rewind
-```
+`opencode-rewind` can be used in three different ways:
 
-Global install:
-
-```bash
-npm install -g opencode-rewind
-opencode-rewind start
-```
-
-Optional flags:
-
-```bash
-opencode-rewind start --port 3838 --host 127.0.0.1
-opencode-rewind stop
-opencode-rewind status
-```
-
-`opencode-rewind` commands:
-
-- `opencode-rewind` or `opencode-rewind serve` runs the app in the foreground
-- `opencode-rewind start` starts it in the background if it is not already running
-- `opencode-rewind stop` stops the managed background server
-- `opencode-rewind status` reports whether the server is reachable
+1. as an OpenCode plugin that powers `/rewind` and `/rewind-off`
+2. as a standalone CLI/server you run yourself
+3. as a TypeScript library
 
 ## OpenCode Plugin
 
 `opencode-rewind` can also be loaded as an OpenCode plugin.
+
+The package root is the plugin entry for OpenCode. The TypeScript library API lives at `opencode-rewind/lib`.
+
+You do not need to install the package globally for the plugin workflow.
+Add the plugin and commands to your OpenCode config, and OpenCode will install the npm package into its plugin cache automatically.
 
 OpenCode plugins and slash commands are configured separately. The plugin handles `/rewind` and `/rewind-off` in the `command.execute.before` hook, but the commands still need to be defined in your OpenCode config so they appear in the TUI.
 
@@ -85,16 +70,79 @@ Optional plugin config:
   "plugin": [["opencode-rewind", {
     "baseUrl": "http://127.0.0.1:3838",
     "rewindCommand": "rewind",
-    "stopCommand": "rewind-off",
-    "cliCommand": "opencode-rewind"
+    "stopCommand": "rewind-off"
   }]]
 }
 ```
 
+`cliCommand` is only needed for advanced overrides. By default the plugin runs the bundled CLI that ships inside the npm package.
+
+### Local Plugin Iteration
+
+To test plugin changes without publishing to npm, you can sync your local build into OpenCode's cached plugin install:
+
+```bash
+pnpm sync:opencode-cache
+```
+
+That rebuilds the package and copies these files into OpenCode's cached package directory:
+
+- `dist/`
+- `bin/`
+- `.next/`
+- `package.json`
+- `README.md`
+
+Then restart OpenCode.
+
+You can also smoke test the cached install directly:
+
+```bash
+pnpm smoke:opencode-cache
+```
+
+Both scripts default to:
+
+```text
+~/.cache/opencode/packages/opencode-rewind@latest/node_modules/opencode-rewind
+```
+
+Override the target with `OPENCODE_REWIND_CACHE_DIR` if needed.
+
+## CLI
+
+Install globally if you want to run the Rewind web app yourself outside OpenCode:
+
+```bash
+npm install -g opencode-rewind
+opencode-rewind start
+```
+
+Optional flags:
+
+```bash
+opencode-rewind start --port 3838 --host 127.0.0.1
+opencode-rewind stop
+opencode-rewind status
+```
+
+`opencode-rewind` commands:
+
+- `opencode-rewind` or `opencode-rewind serve` runs the app in the foreground
+- `opencode-rewind start` starts it in the background if it is not already running
+- `opencode-rewind stop` stops the managed background server
+- `opencode-rewind status` reports whether the server is reachable
+
 ## Library
 
+Install it in a JS/TS project if you want to consume the normalized OpenCode session API directly:
+
+```bash
+pnpm add opencode-rewind
+```
+
 ```ts
- import { createRewind } from "opencode-rewind";
+ import { createRewind } from "opencode-rewind/lib";
 
 const rewind = createRewind();
 
@@ -108,7 +156,7 @@ rewind.close();
 ### Config
 
 ```ts
- import { createRewind } from "opencode-rewind";
+ import { createRewind } from "opencode-rewind/lib";
 
 const rewind = createRewind({
   basePath: "/custom/path/to/opencode-data-dir",
