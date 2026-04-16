@@ -6,6 +6,8 @@ Published on npm as `opencode-rewind`.
 
 This project is not built by the OpenCode team and is not affiliated with OpenCode or Anomaly.
 
+![Screenshot of the Rewind interface](./docs/screenshot.png)
+
 ## Why
 
 OpenCode stores rich local session state, but the raw SQLite data is awkward to inspect directly.

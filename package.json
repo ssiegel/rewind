@@ -25,6 +25,7 @@
   "files": [
     "dist",
     "bin",
+    "docs",
     ".next/BUILD_ID",
     ".next/app-path-routes-manifest.json",
     ".next/build-manifest.json",
