@@ -32,6 +32,20 @@ export interface OpenCodeRawSession {
   time: { created: number; updated: number };
   summary?: { additions: number; deletions: number; files: number };
   permission?: Array<{ type: string; glob?: string; description?: string }>;
+  /** V2 only: session this one was forked from. */
+  forkSessionID?: string;
+  /** V2 only: agent the session last ran with. */
+  agent?: string;
+  /** V2 only: model the session last ran with. */
+  model?: { id?: string; providerID?: string; variant?: string };
+}
+
+export interface OpenCodeTokens {
+  input: number;
+  output: number;
+  reasoning: number;
+  total?: number;
+  cache?: { read: number; write: number };
 }
 
 export interface OpenCodeRawMessage {
@@ -45,13 +59,7 @@ export interface OpenCodeRawMessage {
   mode?: string;
   agent?: string;
   cost?: number;
-  tokens?: {
-    input: number;
-    output: number;
-    reasoning: number;
-    total?: number;
-    cache?: { read: number; write: number };
-  };
+  tokens?: OpenCodeTokens;
   finish?: string;
   model?: { providerID: string; modelID: string };
   summary?: { title?: string; diffs?: unknown[] };
@@ -165,6 +173,95 @@ export interface OpenCodeProject {
 }
 
 // ---------------------------------------------------------------------------
+// Raw types – OpenCode V2 (`session_v2` / `session_message`)
+// ---------------------------------------------------------------------------
+
+/**
+ * V2 message kind, taken from the `session_message.type` column. It replaces
+ * V1's `role` and adds kinds that V1 modelled as parts or not at all.
+ */
+export type OpenCodeV2MessageType =
+  | "user"
+  | "assistant"
+  | "system"
+  | "synthetic"
+  | "compaction"
+  | "idle";
+
+export interface OpenCodeV2TextContent {
+  type: "text";
+  text: string;
+}
+
+export interface OpenCodeV2ReasoningContent {
+  type: "reasoning";
+  text: string;
+  time?: { created: number; completed?: number };
+}
+
+/** Body of a tool result. Text blocks carry output, file blocks carry attachments. */
+export type OpenCodeV2ToolResultBlock =
+  | { type: "text"; text: string }
+  | { type: "file"; uri?: string; mime?: string };
+
+export interface OpenCodeV2ToolContent {
+  type: "tool";
+  /** Provider tool-call id, V1's `callID`. */
+  id: string;
+  name: string;
+  executed?: boolean;
+  state: {
+    status: string;
+    input?: unknown;
+    /** Result body, replacing V1's flat `state.output` string. */
+    content?: OpenCodeV2ToolResultBlock[] | null;
+    metadata?: Record<string, unknown>;
+    error?: { type?: string; message?: string };
+  };
+  time?: { created: number; completed?: number; ran?: number };
+}
+
+export type OpenCodeV2Content =
+  | OpenCodeV2TextContent
+  | OpenCodeV2ReasoningContent
+  | OpenCodeV2ToolContent;
+
+export interface OpenCodeV2Message {
+  id: string;
+  sessionID: string;
+  /** Message kind from the `type` column. */
+  type: OpenCodeV2MessageType;
+  /** Canonical ordering within the session. */
+  seq: number;
+  time: { created: number; completed?: number; streamed?: number };
+  /** Set on user, system and synthetic messages. */
+  text?: string;
+  /** Set on assistant messages. */
+  content?: OpenCodeV2Content[];
+  agent?: string;
+  model?: { id?: string; providerID?: string; variant?: string };
+  cost?: number;
+  tokens?: OpenCodeTokens;
+  finish?: string;
+  rawFinish?: unknown;
+  snapshot?: { start?: string; end?: string; files?: unknown };
+  files?: unknown[];
+  agents?: unknown[];
+  /** Set on compaction messages. */
+  status?: string;
+  reason?: string;
+  summary?: string;
+  metadata?: Record<string, unknown>;
+  /** Set on idle messages. */
+  outcome?: string;
+  /** V2 errors are flat, unlike V1's nested `error.data`. */
+  error?: { type?: string; message?: string; statusCode?: number; isRetryable?: boolean };
+}
+
+/** Raw payload attached to a normalized message, from either schema. */
+export type OpenCodeMessageRaw = OpenCodeRawMessage | OpenCodeV2Message;
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -187,6 +284,15 @@ async function readJson<T>(path: string): Promise<T | null> {
   }
 }
 
+function parseJsonColumn<T>(value: unknown): T | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Content conversion
 // ---------------------------------------------------------------------------
@@ -195,6 +301,12 @@ async function readJson<T>(path: string): Promise<T | null> {
 function partDurationMs(time?: { start: number; end: number }): number | undefined {
   if (!time || time.end <= time.start) return undefined;
   return time.end - time.start;
+}
+
+/** Compute duration from a V2 created/completed pair. */
+function spanDurationMs(time?: { created?: number; completed?: number }): number | undefined {
+  if (!time?.created || !time.completed || time.completed <= time.created) return undefined;
+  return time.completed - time.created;
 }
 
 function partsToContent(parts: OpenCodePart[]): MessageContent[] {
@@ -269,15 +381,86 @@ function partsToContent(parts: OpenCodePart[]): MessageContent[] {
   return content;
 }
 
-function messageTokenUsage(raw: OpenCodeRawMessage): TokenUsage | undefined {
-  if (!raw.tokens) return undefined;
-  const t = raw.tokens;
-  const cacheRead = t.cache?.read ?? 0;
-  const cacheWrite = t.cache?.write ?? 0;
+/** Flatten a V2 tool result body into the normalized flat output string. */
+function v2ToolOutput(blocks: OpenCodeV2ToolResultBlock[]): string {
+  const chunks: string[] = [];
+  for (const block of blocks) {
+    if (block.type === "text") {
+      chunks.push(block.text);
+    } else if (block.type === "file") {
+      chunks.push(`[file${block.mime ? `: ${block.mime}` : ""}]`);
+    }
+  }
+  return chunks.join("\n");
+}
+
+function v2ContentToContent(blocks: OpenCodeV2Content[]): MessageContent[] {
+  const content: MessageContent[] = [];
+  for (const block of blocks) {
+    switch (block.type) {
+      case "text":
+        if (block.text) {
+          content.push({ type: "text", text: block.text });
+        }
+        break;
+      case "reasoning": {
+        const dur = spanDurationMs(block.time);
+        content.push({
+          type: "thinking",
+          text: block.text,
+          ...(dur != null ? { durationMs: dur } : {}),
+        });
+        break;
+      }
+      case "tool": {
+        const state = block.state ?? { status: "unknown" };
+        // Any tool that spawns a child session records it here, which covers
+        // both the V1 `task` name and the V2 `subagent` rename.
+        const subagentSessionId = state.metadata?.["sessionId"] as string | undefined;
+        const toolDur = spanDurationMs(block.time);
+
+        content.push({
+          type: "tool_use",
+          toolName: block.name,
+          toolCallId: block.id,
+          input: state.input,
+          ...(subagentSessionId ? { subagentSessionId } : {}),
+          ...(toolDur != null ? { durationMs: toolDur } : {}),
+        });
+
+        const hasBody = Array.isArray(state.content) && state.content.length > 0;
+        if (hasBody || state.error) {
+          const output = hasBody
+            ? v2ToolOutput(state.content as OpenCodeV2ToolResultBlock[])
+            : (state.error?.message ?? "");
+          content.push({
+            type: "tool_result",
+            toolCallId: block.id,
+            toolName: block.name,
+            output,
+            isError: state.status === "error",
+            status: state.status,
+            ...(toolDur != null ? { durationMs: toolDur } : {}),
+          });
+        }
+        break;
+      }
+    }
+  }
+  if (content.length === 0) {
+    content.push({ type: "text", text: "" });
+  }
+  return content;
+}
+
+function tokensToUsage(tokens?: OpenCodeTokens): TokenUsage | undefined {
+  if (!tokens) return undefined;
+  const cacheRead = tokens.cache?.read ?? 0;
+  const cacheWrite = tokens.cache?.write ?? 0;
   // inputTokens = total prompt tokens (non-cached + cache read + cache write)
-  const inputTokens = t.input + cacheRead + cacheWrite;
-  const outputTokens = t.output;
-  const reasoningTokens = t.reasoning || 0;
+  const inputTokens = tokens.input + cacheRead + cacheWrite;
+  const outputTokens = tokens.output;
+  const reasoningTokens = tokens.reasoning || 0;
   return {
     inputTokens,
     outputTokens,
@@ -308,6 +491,16 @@ function rawErrorToMessageError(raw: OpenCodeRawMessage): MessageError | undefin
   };
 }
 
+function v2ErrorToMessageError(raw: OpenCodeV2Message): MessageError | undefined {
+  if (!raw.error) return undefined;
+  return {
+    name: raw.error.type ?? "Error",
+    message: raw.error.message,
+    statusCode: raw.error.statusCode,
+    isRetryable: raw.error.isRetryable,
+  };
+}
+
 function getPartTime(part: OpenCodePart): number | null {
   if (part.type === "text" || part.type === "reasoning") {
     return part.time?.start ?? null;
@@ -328,12 +521,11 @@ function sortParts(parts: OpenCodePart[]): void {
   });
 }
 
-async function rawToMessage(
+function rawToMessage(
   raw: OpenCodeRawMessage,
-  loadPartsFn: (messageId: string) => Promise<OpenCodePart[]>,
   isCompactSummary?: boolean,
-): Promise<Message<OpenCodeRawMessage>> {
-  const parts = raw._parts ?? await loadPartsFn(raw.id);
+): Message<OpenCodeMessageRaw> {
+  const parts = raw._parts ?? [];
 
   // Compute timing from time.completed (available on assistant messages)
   const completedAt = raw.time.completed ? msToIso(raw.time.completed) : undefined;
@@ -342,7 +534,7 @@ async function rawToMessage(
       ? raw.time.completed - raw.time.created
       : undefined;
 
-  const msg: Message<OpenCodeRawMessage> = {
+  const msg: Message<OpenCodeMessageRaw> = {
     id: raw.id,
     role: raw.role as Message["role"],
     content: partsToContent(parts),
@@ -350,7 +542,7 @@ async function rawToMessage(
     ...(completedAt ? { completedAt } : {}),
     ...(durationMs != null && durationMs > 0 ? { durationMs } : {}),
     model: resolveModel(raw),
-    usage: messageTokenUsage(raw),
+    usage: tokensToUsage(raw.tokens),
     parentId: raw.parentID,
     ...(isCompactSummary ? { isCompactSummary: true } : {}),
     error: rawErrorToMessageError(raw),
@@ -372,11 +564,8 @@ async function rawToMessage(
  * When a user message contains a compaction part, the next assistant message
  * is marked as a compact summary.
  */
-async function convertMessages(
-  rawMessages: OpenCodeRawMessage[],
-  loadPartsFn: (messageId: string) => Promise<OpenCodePart[]>,
-): Promise<Message<OpenCodeRawMessage>[]> {
-  const messages: Message<OpenCodeRawMessage>[] = [];
+function convertMessages(rawMessages: OpenCodeRawMessage[]): Message<OpenCodeMessageRaw>[] {
+  const messages: Message<OpenCodeMessageRaw>[] = [];
   let nextIsSummary = false;
 
   for (const raw of rawMessages) {
@@ -384,18 +573,72 @@ async function convertMessages(
     const hasCompaction = parts.some((p) => p.type === "compaction");
 
     if (hasCompaction) {
-      messages.push(await rawToMessage(raw, loadPartsFn));
+      messages.push(rawToMessage(raw));
       nextIsSummary = true;
     } else if (nextIsSummary && raw.role === "assistant") {
-      messages.push(await rawToMessage(raw, loadPartsFn, true));
+      messages.push(rawToMessage(raw, true));
       nextIsSummary = false;
     } else {
-      messages.push(await rawToMessage(raw, loadPartsFn));
+      messages.push(rawToMessage(raw));
       nextIsSummary = false;
     }
   }
 
   return messages;
+}
+
+/**
+ * Map a V2 message kind onto a normalized role. `synthetic` messages are
+ * OpenCode-injected narration rather than human input, so they are surfaced as
+ * system messages. `idle` messages are bookkeeping and are dropped by the caller.
+ */
+function v2TypeToRole(type: OpenCodeV2MessageType): Message["role"] {
+  switch (type) {
+    case "user":
+      return "user";
+    case "assistant":
+      return "assistant";
+    default:
+      return "system";
+  }
+}
+
+function v2ToMessage(raw: OpenCodeV2Message): Message<OpenCodeMessageRaw> {
+  let content: MessageContent[];
+  if (raw.type === "compaction") {
+    // V2 stores the summary on the compaction message itself, where V1 put it
+    // on the following assistant message.
+    content = [{ type: "compaction", auto: raw.reason === "auto" }];
+    if (raw.summary) content.push({ type: "text", text: raw.summary });
+  } else if (raw.content) {
+    content = v2ContentToContent(raw.content);
+  } else {
+    content = [{ type: "text", text: raw.text ?? "" }];
+  }
+
+  const completedAt = raw.time.completed ? msToIso(raw.time.completed) : undefined;
+  const durationMs = spanDurationMs(raw.time);
+
+  const msg: Message<OpenCodeMessageRaw> = {
+    id: raw.id,
+    role: v2TypeToRole(raw.type),
+    content,
+    timestamp: msToIso(raw.time.created),
+    ...(completedAt ? { completedAt } : {}),
+    ...(durationMs != null ? { durationMs } : {}),
+    model: raw.model?.id,
+    usage: tokensToUsage(raw.tokens),
+    ...(raw.type === "compaction" && raw.summary ? { isCompactSummary: true } : {}),
+    error: v2ErrorToMessageError(raw),
+    raw,
+  };
+
+  if (raw.finish) msg.stopReason = raw.finish;
+  if (raw.agent) msg.mode = raw.agent;
+  if (raw.cost != null) msg.cost = raw.cost;
+  if (raw.model?.providerID) msg.apiProvider = raw.model.providerID;
+
+  return msg;
 }
 
 function rawSessionToSummary(
@@ -427,7 +670,7 @@ function rawSessionToSummary(
     cost: aggregatedCost,
     parentSessionId: raw.parentID,
     cliVersion: raw.version,
-    primaryModel: extras?.primaryModel,
+    primaryModel: extras?.primaryModel ?? raw.model?.id,
     models: extras?.models,
     toolCallCount: extras?.toolCallCount,
     subagentCount: extras?.subagentCount,
@@ -442,11 +685,22 @@ function rawSessionToSummary(
   };
 }
 
-/** Aggregate token usage and cost from raw messages. */
-function aggregateUsage(rawMessages: OpenCodeRawMessage[]): {
+/**
+ * Aggregate usage, cost, timing and content statistics from normalized
+ * messages, so both storage schemas share one implementation.
+ */
+function aggregateMessages(messages: Message<OpenCodeMessageRaw>[]): {
   usage: TokenUsage | undefined;
   cost: number | undefined;
   totalDurationMs: number | undefined;
+  extras: {
+    primaryModel?: string;
+    models?: string[];
+    toolCallCount?: number;
+    subagentCount?: number;
+    compactionCount?: number;
+    topTools?: Array<{ name: string; count: number }>;
+  };
 } {
   let tInput = 0;
   let tOutput = 0;
@@ -459,28 +713,49 @@ function aggregateUsage(rawMessages: OpenCodeRawMessage[]): {
   let tDuration = 0;
   let hasDuration = false;
 
-  for (const msg of rawMessages) {
-    if (msg.tokens) {
+  const modelCounts = new Map<string, number>();
+  const toolCounts = new Map<string, number>();
+  let toolCallCount = 0;
+  let subagentCount = 0;
+  let compactionCount = 0;
+
+  for (const msg of messages) {
+    if (msg.usage) {
       hasTokens = true;
-      const cr = msg.tokens.cache?.read || 0;
-      const cw = msg.tokens.cache?.write || 0;
-      const turnIn = (msg.tokens.input || 0) + cr + cw;
+      const turnIn = msg.usage.inputTokens ?? 0;
       tInput += turnIn;
-      tOutput += msg.tokens.output || 0;
-      tReasoning += msg.tokens.reasoning || 0;
-      tCacheRead += cr;
-      tCacheWrite += cw;
+      tOutput += msg.usage.outputTokens ?? 0;
+      tReasoning += msg.usage.reasoningTokens ?? 0;
+      tCacheRead += msg.usage.cacheReadTokens ?? 0;
+      tCacheWrite += msg.usage.cacheCreationTokens ?? 0;
       if (turnIn > pInput) pInput = turnIn;
     }
     if (msg.cost) tCost += msg.cost;
-    if (msg.time.completed && msg.time.created) {
-      const dur = msg.time.completed - msg.time.created;
-      if (dur > 0) {
-        tDuration += dur;
-        hasDuration = true;
+    if (msg.durationMs != null && msg.durationMs > 0) {
+      tDuration += msg.durationMs;
+      hasDuration = true;
+    }
+    if (msg.model) {
+      modelCounts.set(msg.model, (modelCounts.get(msg.model) ?? 0) + 1);
+    }
+
+    for (const block of msg.content) {
+      if (block.type === "tool_use") {
+        toolCounts.set(block.toolName, (toolCounts.get(block.toolName) ?? 0) + 1);
+        if (block.subagentSessionId) subagentCount++;
+        else toolCallCount++;
       }
+      if (block.type === "compaction") compactionCount++;
     }
   }
+
+  const models = Array.from(modelCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([model]) => model);
+  const topTools = Array.from(toolCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, count]) => ({ name, count }));
 
   return {
     usage: hasTokens
@@ -496,76 +771,88 @@ function aggregateUsage(rawMessages: OpenCodeRawMessage[]): {
       : undefined,
     cost: tCost > 0 ? tCost : undefined,
     totalDurationMs: hasDuration ? tDuration : undefined,
-  };
-}
-
-function aggregateSummaryExtras(rawMessages: OpenCodeRawMessage[]): {
-  primaryModel?: string;
-  models?: string[];
-  toolCallCount?: number;
-  subagentCount?: number;
-  compactionCount?: number;
-  topTools?: Array<{ name: string; count: number }>;
-} {
-  const modelCounts = new Map<string, number>();
-  const toolCounts = new Map<string, number>();
-  let toolCallCount = 0;
-  let subagentCount = 0;
-  let compactionCount = 0;
-
-  for (const raw of rawMessages) {
-    const model = resolveModel(raw);
-    if (model) {
-      modelCounts.set(model, (modelCounts.get(model) ?? 0) + 1);
-    }
-
-    for (const part of raw._parts ?? []) {
-      if (part.type === "tool") {
-        toolCounts.set(part.tool, (toolCounts.get(part.tool) ?? 0) + 1);
-        const isSubagent = part.tool === "task" && Boolean(part.state.metadata?.sessionId);
-        if (isSubagent) subagentCount++;
-        else toolCallCount++;
-      }
-      if (part.type === "compaction") compactionCount++;
-    }
-  }
-
-  const models = Array.from(modelCounts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .map(([model]) => model);
-  const topTools = Array.from(toolCounts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([name, count]) => ({ name, count }));
-
-  return {
-    primaryModel: models[0],
-    ...(models.length > 0 ? { models } : {}),
-    ...(toolCallCount > 0 ? { toolCallCount } : {}),
-    ...(subagentCount > 0 ? { subagentCount } : {}),
-    ...(compactionCount > 0 ? { compactionCount } : {}),
-    ...(topTools.length > 0 ? { topTools } : {}),
+    extras: {
+      primaryModel: models[0],
+      ...(models.length > 0 ? { models } : {}),
+      ...(toolCallCount > 0 ? { toolCallCount } : {}),
+      ...(subagentCount > 0 ? { subagentCount } : {}),
+      ...(compactionCount > 0 ? { compactionCount } : {}),
+      ...(topTools.length > 0 ? { topTools } : {}),
+    },
   };
 }
 
 // ---------------------------------------------------------------------------
-// SQLite backend
+// SQLite backends
 // ---------------------------------------------------------------------------
 
 interface SqliteBackend {
   loadProjectWorktrees(): Map<string, string>;
   loadAllSessions(): OpenCodeRawSession[];
-  loadRawMessages(sessionId: string): OpenCodeRawMessage[];
-  loadParts(messageId: string): OpenCodePart[];
-  loadPartsBySession(sessionId: string): Map<string, OpenCodePart[]>;
+  loadMessages(sessionId: string): Message<OpenCodeMessageRaw>[];
   loadTodos(sessionId: string): OpenCodeTodo[];
   close(): void;
 }
 
-function createSqliteBackend(dbPath: string): SqliteBackend {
-  const db = new DatabaseSync(dbPath, { readOnly: true });
+function rowToTodo(row: Record<string, unknown>): OpenCodeTodo {
+  return {
+    id: `todo-${row.session_id}-${row.position}`,
+    sessionID: row.session_id as string,
+    content: row.content as string,
+    status: row.status as string | undefined,
+    priority: row.priority as string | undefined,
+    time: {
+      created: row.time_created as number,
+      updated: row.time_updated as number,
+    },
+  };
+}
 
-  // Prepare statements for reuse
+function rowToProjectWorktrees(rows: Array<Record<string, unknown>>): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    map.set(row.id as string, row.worktree as string);
+  }
+  return map;
+}
+
+/** Shared session column decoding; both schemas use the same column names. */
+function rowToSession(row: Record<string, unknown>): OpenCodeRawSession {
+  const session: OpenCodeRawSession = {
+    id: row.id as string,
+    projectID: row.project_id as string,
+    slug: (row.slug as string) || undefined,
+    directory: (row.directory as string) || undefined,
+    parentID: (row.parent_id as string) || undefined,
+    title: (row.title as string) || undefined,
+    version: (row.version as string) || undefined,
+    time: {
+      created: row.time_created as number,
+      updated: row.time_updated as number,
+    },
+  };
+
+  if (row.summary_additions != null || row.summary_deletions != null || row.summary_files != null) {
+    session.summary = {
+      additions: (row.summary_additions as number) ?? 0,
+      deletions: (row.summary_deletions as number) ?? 0,
+      files: (row.summary_files as number) ?? 0,
+    };
+  }
+
+  const permission = parseJsonColumn<OpenCodeRawSession["permission"]>(row.permission);
+  if (permission) session.permission = permission;
+
+  if (row.fork_session_id) session.forkSessionID = row.fork_session_id as string;
+  if (row.agent) session.agent = row.agent as string;
+  const model = parseJsonColumn<OpenCodeRawSession["model"]>(row.model);
+  if (model) session.model = model;
+
+  return session;
+}
+
+/** Backend for the V1 layout: `session` plus separate `message` and `part` tables. */
+function createLegacyBackend(db: DatabaseSync): SqliteBackend {
   const stmtProjects = db.prepare("SELECT id, worktree FROM project");
 
   const stmtSessions = db.prepare(`
@@ -584,13 +871,6 @@ function createSqliteBackend(dbPath: string): SqliteBackend {
     ORDER BY time_created ASC
   `);
 
-  const stmtParts = db.prepare(`
-    SELECT id, message_id, session_id, time_created, time_updated, data
-    FROM part
-    WHERE message_id = ?
-    ORDER BY time_created ASC
-  `);
-
   const stmtPartsBySession = db.prepare(`
     SELECT id, message_id, session_id, time_created, time_updated, data
     FROM part
@@ -605,51 +885,13 @@ function createSqliteBackend(dbPath: string): SqliteBackend {
     ORDER BY position ASC
   `);
 
-  function rowToSession(row: Record<string, unknown>): OpenCodeRawSession {
-    const session: OpenCodeRawSession = {
-      id: row.id as string,
-      projectID: row.project_id as string,
-      slug: (row.slug as string) || undefined,
-      directory: (row.directory as string) || undefined,
-      parentID: (row.parent_id as string) || undefined,
-      title: (row.title as string) || undefined,
-      version: (row.version as string) || undefined,
-      time: {
-        created: row.time_created as number,
-        updated: row.time_updated as number,
-      },
-    };
-
-    // Reconstruct summary if data exists
-    if (row.summary_additions != null || row.summary_deletions != null || row.summary_files != null) {
-      session.summary = {
-        additions: (row.summary_additions as number) ?? 0,
-        deletions: (row.summary_deletions as number) ?? 0,
-        files: (row.summary_files as number) ?? 0,
-      };
-    }
-
-    // Parse permission JSON if present
-    if (row.permission) {
-      try {
-        session.permission = JSON.parse(row.permission as string);
-      } catch {
-        // ignore malformed permission
-      }
-    }
-
-    return session;
-  }
-
   function rowToRawMessage(row: Record<string, unknown>): OpenCodeRawMessage {
-    const id = row.id as string;
-    const sessionID = row.session_id as string;
     const data = JSON.parse(row.data as string) as Record<string, unknown>;
 
     // Reconstruct OpenCodeRawMessage from the row + embedded data.
-    const msg: OpenCodeRawMessage = {
-      id,
-      sessionID,
+    return {
+      id: row.id as string,
+      sessionID: row.session_id as string,
       role: data.role as string,
       time: data.time as { created: number; completed?: number },
       parentID: data.parentID as string | undefined,
@@ -658,7 +900,7 @@ function createSqliteBackend(dbPath: string): SqliteBackend {
       mode: data.mode as string | undefined,
       agent: data.agent as string | undefined,
       cost: data.cost as number | undefined,
-      tokens: data.tokens as OpenCodeRawMessage["tokens"],
+      tokens: data.tokens as OpenCodeTokens | undefined,
       finish: data.finish as string | undefined,
       model: data.model as { providerID: string; modelID: string } | undefined,
       summary: data.summary as { title?: string; diffs?: unknown[] } | undefined,
@@ -666,86 +908,152 @@ function createSqliteBackend(dbPath: string): SqliteBackend {
       tools: data.tools as Record<string, unknown> | undefined,
       error: data.error as OpenCodeRawMessage["error"],
     };
-
-    return msg;
   }
 
   function rowToPart(row: Record<string, unknown>): OpenCodePart {
-    const id = row.id as string;
-    const messageID = row.message_id as string;
-    const sessionID = row.session_id as string;
     const data = JSON.parse(row.data as string) as Record<string, unknown>;
-
     // Re-attach row metadata stripped from the JSON payload.
-    return { ...data, id, messageID, sessionID } as unknown as OpenCodePart;
+    return {
+      ...data,
+      id: row.id as string,
+      messageID: row.message_id as string,
+      sessionID: row.session_id as string,
+    } as unknown as OpenCodePart;
   }
 
   return {
-    loadProjectWorktrees(): Map<string, string> {
-      const map = new Map<string, string>();
-      const rows = stmtProjects.all() as Array<Record<string, unknown>>;
-      for (const row of rows) {
-        map.set(row.id as string, row.worktree as string);
-      }
-      return map;
+    loadProjectWorktrees() {
+      return rowToProjectWorktrees(stmtProjects.all() as Array<Record<string, unknown>>);
     },
 
-    loadAllSessions(): OpenCodeRawSession[] {
-      const rows = stmtSessions.all() as Array<Record<string, unknown>>;
-      return rows.map(rowToSession);
+    loadAllSessions() {
+      return (stmtSessions.all() as Array<Record<string, unknown>>).map(rowToSession);
     },
 
-    loadRawMessages(sessionId: string): OpenCodeRawMessage[] {
-      const rows = stmtMessages.all(sessionId) as Array<Record<string, unknown>>;
-      return rows.map(rowToRawMessage);
-    },
+    loadMessages(sessionId) {
+      const rawMessages = (stmtMessages.all(sessionId) as Array<Record<string, unknown>>).map(
+        rowToRawMessage,
+      );
 
-    loadParts(messageId: string): OpenCodePart[] {
-      const rows = stmtParts.all(messageId) as Array<Record<string, unknown>>;
-      const parts = rows.map(rowToPart);
-      sortParts(parts);
-      return parts;
-    },
-
-    loadPartsBySession(sessionId: string): Map<string, OpenCodePart[]> {
-      const rows = stmtPartsBySession.all(sessionId) as Array<Record<string, unknown>>;
-      const map = new Map<string, OpenCodePart[]>();
-      for (const row of rows) {
-        const part = rowToPart(row);
+      const partsByMessage = new Map<string, OpenCodePart[]>();
+      for (const row of stmtPartsBySession.all(sessionId) as Array<Record<string, unknown>>) {
         const msgId = row.message_id as string;
-        let arr = map.get(msgId);
+        let arr = partsByMessage.get(msgId);
         if (!arr) {
           arr = [];
-          map.set(msgId, arr);
+          partsByMessage.set(msgId, arr);
         }
-        arr.push(part);
+        arr.push(rowToPart(row));
       }
-      // Sort parts within each message
-      for (const parts of map.values()) {
+      for (const parts of partsByMessage.values()) {
         sortParts(parts);
       }
-      return map;
+      for (const msg of rawMessages) {
+        msg._parts = partsByMessage.get(msg.id) ?? [];
+      }
+
+      return convertMessages(rawMessages);
     },
 
-    loadTodos(sessionId: string): OpenCodeTodo[] {
-      const rows = stmtTodos.all(sessionId) as Array<Record<string, unknown>>;
-      return rows.map((row) => ({
-        id: `todo-${row.session_id}-${row.position}`,
-        sessionID: row.session_id as string,
-        content: row.content as string,
-        status: row.status as string | undefined,
-        priority: row.priority as string | undefined,
-        time: {
-          created: row.time_created as number,
-          updated: row.time_updated as number,
-        },
-      }));
+    loadTodos(sessionId) {
+      return (stmtTodos.all(sessionId) as Array<Record<string, unknown>>).map(rowToTodo);
     },
 
     close() {
       db.close();
     },
   };
+}
+
+/**
+ * Backend for the V2 layout: `session_v2` plus `session_message`, which inlines
+ * what V1 stored as separate `part` rows.
+ */
+function createV2Backend(db: DatabaseSync): SqliteBackend {
+  const stmtProjects = db.prepare("SELECT id, worktree FROM project");
+
+  const stmtSessions = db.prepare(`
+    SELECT id, project_id, parent_id, fork_session_id, slug, directory, title, version,
+           summary_additions, summary_deletions, summary_files,
+           permission, agent, model, time_created, time_updated
+    FROM session_v2
+    WHERE time_archived IS NULL
+    ORDER BY time_updated DESC
+  `);
+
+  const stmtMessages = db.prepare(`
+    SELECT id, session_id, type, seq, time_created, time_updated, data
+    FROM session_message
+    WHERE session_id = ?
+    ORDER BY seq ASC
+  `);
+
+  const stmtTodos = db.prepare(`
+    SELECT session_id, content, status, priority, position, time_created, time_updated
+    FROM todo
+    WHERE session_id = ?
+    ORDER BY position ASC
+  `);
+
+  function rowToV2Message(row: Record<string, unknown>): OpenCodeV2Message {
+    const data = JSON.parse(row.data as string) as Record<string, unknown>;
+    const time = (data.time as OpenCodeV2Message["time"]) ?? {
+      created: row.time_created as number,
+    };
+
+    return {
+      ...data,
+      id: row.id as string,
+      sessionID: row.session_id as string,
+      type: row.type as OpenCodeV2MessageType,
+      seq: row.seq as number,
+      time,
+    } as OpenCodeV2Message;
+  }
+
+  return {
+    loadProjectWorktrees() {
+      return rowToProjectWorktrees(stmtProjects.all() as Array<Record<string, unknown>>);
+    },
+
+    loadAllSessions() {
+      return (stmtSessions.all() as Array<Record<string, unknown>>).map(rowToSession);
+    },
+
+    loadMessages(sessionId) {
+      const messages: Message<OpenCodeMessageRaw>[] = [];
+      for (const row of stmtMessages.all(sessionId) as Array<Record<string, unknown>>) {
+        const raw = rowToV2Message(row);
+        // Idle markers are lifecycle bookkeeping with no conversation content.
+        if (raw.type === "idle") continue;
+        messages.push(v2ToMessage(raw));
+      }
+      return messages;
+    },
+
+    loadTodos(sessionId) {
+      return (stmtTodos.all(sessionId) as Array<Record<string, unknown>>).map(rowToTodo);
+    },
+
+    close() {
+      db.close();
+    },
+  };
+}
+
+function hasTable(db: DatabaseSync, name: string): boolean {
+  const row = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(name);
+  return row != null;
+}
+
+function createSqliteBackend(dbPath: string): SqliteBackend {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  // OpenCode V2 migrates sessions into `session_v2`/`session_message` and
+  // backfills existing ones, so prefer it whenever present.
+  const isV2 = hasTable(db, "session_v2") && hasTable(db, "session_message");
+  return isV2 ? createV2Backend(db) : createLegacyBackend(db);
 }
 
 // ---------------------------------------------------------------------------
@@ -757,8 +1065,8 @@ export interface OpenCodeProvider {
   name: string;
   basePath: string;
   listSessions(options?: ListSessionsOptions): Promise<SessionSummary[]>;
-  getSession(sessionId: string): Promise<Session<OpenCodeRawMessage> | null>;
-  getMessages(sessionId: string): Promise<Message<OpenCodeRawMessage>[]>;
+  getSession(sessionId: string): Promise<Session<OpenCodeMessageRaw> | null>;
+  getMessages(sessionId: string): Promise<Message<OpenCodeMessageRaw>[]>;
   close(): void;
 }
 
@@ -832,20 +1140,8 @@ export function createOpenCodeProvider(
     return hasSqlite ? getSqlite().loadAllSessions() : [];
   }
 
-  async function loadRawMessages(sessionId: string): Promise<OpenCodeRawMessage[]> {
-    return hasSqlite ? getSqlite().loadRawMessages(sessionId) : [];
-  }
-
-  async function loadParts(messageId: string): Promise<OpenCodePart[]> {
-    return hasSqlite ? getSqlite().loadParts(messageId) : [];
-  }
-
-  async function loadAndAttachParts(rawMessages: OpenCodeRawMessage[], sessionId: string): Promise<void> {
-    if (!hasSqlite) return;
-    const partsByMessage = getSqlite().loadPartsBySession(sessionId);
-    for (const msg of rawMessages) {
-      msg._parts = partsByMessage.get(msg.id) ?? [];
-    }
+  async function loadMessages(sessionId: string): Promise<Message<OpenCodeMessageRaw>[]> {
+    return hasSqlite ? getSqlite().loadMessages(sessionId) : [];
   }
 
   async function loadSessionDiffs(sessionId: string): Promise<OpenCodeSessionDiff[]> {
@@ -905,12 +1201,10 @@ export function createOpenCodeProvider(
 
       const results: SessionSummary[] = [];
       for (const raw of sessions) {
-        const rawMessages = await loadRawMessages(raw.id);
-        await loadAndAttachParts(rawMessages, raw.id);
-        const { usage, cost, totalDurationMs } = aggregateUsage(rawMessages);
-        const extras = aggregateSummaryExtras(rawMessages);
+        const messages = await loadMessages(raw.id);
+        const { usage, cost, totalDurationMs, extras } = aggregateMessages(messages);
 
-        const summary = rawSessionToSummary(raw, projectWorktrees, rawMessages.length, usage, cost, extras);
+        const summary = rawSessionToSummary(raw, projectWorktrees, messages.length, usage, cost, extras);
         if (totalDurationMs != null) summary.totalDurationMs = totalDurationMs;
         results.push(summary);
       }
@@ -919,19 +1213,15 @@ export function createOpenCodeProvider(
 
     async getSession(
       sessionId: string,
-    ): Promise<Session<OpenCodeRawMessage> | null> {
+    ): Promise<Session<OpenCodeMessageRaw> | null> {
       const projectWorktrees = await loadProjectWorktrees();
       const allSessions = await loadAllSessions();
       const rawSession = allSessions.find((s) => s.id === sessionId);
 
       if (!rawSession) return null;
 
-      const rawMessages = await loadRawMessages(sessionId);
-      await loadAndAttachParts(rawMessages, sessionId);
-
-      const messages = await convertMessages(rawMessages, loadParts);
-
-      const { usage, cost } = aggregateUsage(rawMessages);
+      const messages = await loadMessages(sessionId);
+      const { usage, cost, totalDurationMs, extras } = aggregateMessages(messages);
 
       const summary = rawSessionToSummary(
         rawSession,
@@ -939,17 +1229,8 @@ export function createOpenCodeProvider(
         messages.length,
         usage,
         cost,
+        extras,
       );
-
-      // Compute totalDurationMs from per-message timing
-      let totalDuration = 0;
-      let hasTiming = false;
-      for (const m of messages) {
-        if (m.durationMs != null) {
-          totalDuration += m.durationMs;
-          hasTiming = true;
-        }
-      }
 
       // Load session diffs and todos
       const diffs = await loadSessionDiffs(sessionId);
@@ -957,17 +1238,15 @@ export function createOpenCodeProvider(
 
       return {
         ...summary,
-        ...(hasTiming ? { totalDurationMs: totalDuration } : {}),
+        ...(totalDurationMs != null ? { totalDurationMs } : {}),
         messages,
         ...(diffs.length > 0 ? { diffs } : {}),
         ...(todos.length > 0 ? { todos } : {}),
       };
     },
 
-    async getMessages(sessionId: string): Promise<Message<OpenCodeRawMessage>[]> {
-      const rawMessages = await loadRawMessages(sessionId);
-      await loadAndAttachParts(rawMessages, sessionId);
-      return await convertMessages(rawMessages, loadParts);
+    async getMessages(sessionId: string): Promise<Message<OpenCodeMessageRaw>[]> {
+      return await loadMessages(sessionId);
     },
 
     close() {

@@ -222,7 +222,7 @@ function computeStats(session: Session): SessionStats {
           subagents.push({
             sessionId: block.subagentSessionId,
             description: (input?.description as string) ?? (input?.prompt as string)?.slice(0, 80) ?? block.toolName,
-            subagentType: (input?.subagent_type as string) ?? "agent",
+            subagentType: (input?.agent as string) ?? (input?.subagent_type as string) ?? "agent",
             durationMs,
             messageIndex: msgIdx,
           });

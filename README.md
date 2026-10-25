@@ -11,6 +11,7 @@ This project is not built by the OpenCode team and is not affiliated with OpenCo
 ## Why
 
 OpenCode stores rich local session state, but the raw SQLite data is awkward to inspect directly.
+Both the OpenCode 1 and OpenCode 2 database layouts are supported.
 Rewind turns it into something easier to use for:
 
 - browsing sessions
@@ -219,6 +220,28 @@ Returns a normalized `Session` with:
 - `messages`
 - `diffs` from `storage/session_diff/<sessionId>.json` when present
 - `todos` from the SQLite `todo` table when present
+
+## Storage Schemas
+
+Rewind detects the database layout at runtime and normalizes both to the same API.
+
+OpenCode 2 stores sessions in `session_v2` and messages in `session_message`.
+A message's content blocks are inlined in its `data` JSON, and the `type` column
+(`user`, `assistant`, `system`, `synthetic`, `compaction`, `idle`) replaces V1's
+`role`. OpenCode 1 used `session` plus separate `message` and `part` tables.
+
+When both layouts are present, Rewind reads `session_v2`, which OpenCode 2
+backfills from the V1 tables.
+
+Normalization differences worth knowing:
+
+- `idle` messages are lifecycle bookkeeping and are omitted.
+- `synthetic` and `system` messages are both reported with role `system`.
+- V2 keeps the compaction summary on the compaction message itself, so that
+  message carries both a `compaction` block and the summary text. In V1 the
+  summary was the following assistant message.
+- V2 tool results are a list of content blocks; Rewind flattens them into the
+  normalized `output` string, and uses `state.error.message` for failed calls.
 
 ### `getMessages(sessionId)`
 

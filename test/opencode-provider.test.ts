@@ -208,7 +208,7 @@ afterEach(() => {
   fixture.dispose();
 });
 
-describe("OpenCode SQLite provider", () => {
+describe("OpenCode SQLite provider (legacy session/message/part schema)", () => {
   it("lists top-level sessions and aggregates OpenCode-specific summary fields", async () => {
     fixture.insertProject();
     fixture.insertSession({

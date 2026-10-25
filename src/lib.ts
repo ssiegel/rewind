@@ -38,6 +38,8 @@ export { createOpenCodeProvider } from "./providers/opencode.js";
 export type {
   OpenCodeRawSession,
   OpenCodeRawMessage,
+  OpenCodeMessageRaw,
+  OpenCodeTokens,
   OpenCodePart,
   OpenCodeTextPart,
   OpenCodeReasoningPart,
@@ -47,6 +49,13 @@ export type {
   OpenCodeStepFinishPart,
   OpenCodePatchPart,
   OpenCodeProject,
+  OpenCodeV2Message,
+  OpenCodeV2MessageType,
+  OpenCodeV2Content,
+  OpenCodeV2TextContent,
+  OpenCodeV2ReasoningContent,
+  OpenCodeV2ToolContent,
+  OpenCodeV2ToolResultBlock,
 } from "./providers/opencode.js";
 
 import type { ListSessionsOptions, Message, OpenCodeConfig, Session, SessionSummary } from "./types.js";

@@ -144,7 +144,8 @@ export function SubagentCallBlock({
   // tool_use — unified box with optional result section
   const input = block.input as Record<string, unknown> | undefined;
   const description = (input?.description as string) ?? block.toolName;
-  const subagentType = (input?.subagent_type as string) ?? "agent";
+  // V2 renamed the `task` tool's `subagent_type` input to `agent`.
+  const subagentType = (input?.agent as string) ?? (input?.subagent_type as string) ?? "agent";
   const hasResult = !!pairedResult;
   const isError = pairedResult?.isError;
 

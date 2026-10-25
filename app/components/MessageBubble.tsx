@@ -53,8 +53,8 @@ function ContentBlock({
       if (block.toolCallId && pairedResultIds?.has(block.toolCallId)) {
         return null;
       }
-      // Orphan result — render standalone
-      if (block.toolName === "task") {
+      // Orphan result — render standalone. V2 renamed `task` to `subagent`.
+      if (block.toolName === "task" || block.toolName === "subagent") {
         return <SubagentCallBlock block={block} />;
       }
       return <ToolCallBlock block={block} />;
